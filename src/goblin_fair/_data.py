@@ -95,8 +95,7 @@ def load_background(background: str) -> pd.DataFrame:
     """Global emissions of every FaIR species for one SSP, in fair's CSV format."""
     if background not in BACKGROUNDS:
         raise ValueError(
-            f"unknown background {background!r}; "
-            f"choose one of {', '.join(BACKGROUNDS)}"
+            f"unknown background {background!r}; choose one of {', '.join(BACKGROUNDS)}"
         )
     df = _all_backgrounds()
     return df[df["scenario"] == background].reset_index(drop=True)
