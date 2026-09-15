@@ -63,13 +63,22 @@ class ContributionResult:
         baseline = np.average(temps[in_base], axis=0, weights=weights)
         return _quantile_frame(self._frame(temps - baseline), quantiles)
 
-    def plot(self, ax=None, color: str = "C0"):
-        """Median contribution with the 5-95 % range shaded. Returns the Axes."""
+    def plot(self, ax=None, color: str = "C0", start_year: int | None = None):
+        """Median contribution with the 5-95 % range shaded. Returns the Axes.
+
+        By default the plot starts 10 years before the first emission year
+        (when known), so the flat pre-emission period does not dominate.
+        """
         import matplotlib.pyplot as plt
 
         if ax is None:
             _, ax = plt.subplots(figsize=(8, 4.5))
-        s = self.summary()
+        if start_year is None:
+            first = self.metadata.get("first_emission_year")
+            start_year = (
+                self.years[0] if first is None else max(first - 10, self.years[0])
+            )
+        s = self.summary().loc[start_year:]
         ax.fill_between(
             s.index, s["p5"], s["p95"], color=color, alpha=0.25, lw=0,
             label="5-95 % range",
@@ -81,8 +90,18 @@ class ContributionResult:
         background = self.metadata.get("background")
         title = "Temperature contribution"
         ax.set_title(f"{title} vs {background} background" if background else title)
+        ax.set_xlim(start_year, self.years[-1])
         ax.legend(frameon=False)
         return ax
+
+    def __repr__(self) -> str:
+        gases = ", ".join(self.metadata.get("species", {})) or "unknown gases"
+        median_end = float(np.median(self.ensemble.iloc[-1]))
+        return (
+            f"ContributionResult({gases} on {self.metadata.get('background', '?')}, "
+            f"{len(self.members)} members, years {self.years[0]}-{self.years[-1]}, "
+            f"median contribution in {self.years[-1]}: {median_end:.3g} K)"
+        )
 
     def _frame(self, values: np.ndarray) -> pd.DataFrame:
         return pd.DataFrame(

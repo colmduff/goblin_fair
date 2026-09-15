@@ -71,3 +71,23 @@ def test_plot_returns_axes_with_median_and_band(result):
     assert "ssp245" in ax.get_title()
     assert len(ax.lines) == 2  # median + zero line
     assert len(ax.collections) == 1  # 5-95 % band
+
+
+def test_repr_is_short_and_informative(result):
+    text = repr(result)
+    assert len(text) < 300
+    assert "ssp245" in text and "5 members" in text and "1750-2100" in text
+
+
+def test_plot_starts_shortly_before_first_emission_year():
+    years = np.arange(1750, 2101)
+    temps = np.zeros((years.size, 2))
+    md = {"first_emission_year": 2025}
+    ax = ContributionResult(years, np.arange(2), temps, temps, md).plot()
+    assert ax.get_xlim()[0] == 2015
+    assert ax.lines[0].get_xdata()[0] == 2015
+
+
+def test_plot_start_year_can_be_overridden(result):
+    ax = result.plot(start_year=1900)
+    assert ax.get_xlim()[0] == 1900

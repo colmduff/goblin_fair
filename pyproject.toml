@@ -30,6 +30,7 @@ optional = true
 [tool.poetry.group.dev.dependencies]
 jupyterlab = "*"
 ipykernel = "*"
+ipywidgets = "*"  # silences tqdm's notebook warning when fair is imported
 nbconvert = "*"
 ruff = "*"
 

@@ -57,6 +57,7 @@ def test_result_metadata_and_background(co2_pulse_result):
     assert md["background_source"] == "RCMIP v5.1.0"
     assert md["n_members"] == N_MEMBERS
     assert md["species"] == {"CO2 FFI": "Gt CO2/yr"}
+    assert (md["first_emission_year"], md["last_emission_year"]) == (2030, 2039)
     bw = co2_pulse_result.background_warming()
     assert 0.8 < bw.loc[2020, "p50"] < 1.6
 

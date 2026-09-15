@@ -78,6 +78,8 @@ def temperature_contribution(
         "end_year": end_year,
         "n_members": len(out.members),
         "species": {specie: FAIR_UNITS[specie] for specie in prepared.columns},
+        "first_emission_year": int(prepared.index[0]),
+        "last_emission_year": int(prepared.index[-1]),
         "input_units": units if isinstance(units, str) else dict(units),
         "run_utc": datetime.now(timezone.utc).isoformat(timespec="seconds"),
     }
