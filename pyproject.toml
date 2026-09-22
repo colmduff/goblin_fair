@@ -33,6 +33,7 @@ ipykernel = "*"
 ipywidgets = "*"  # silences tqdm's notebook warning when fair is imported
 nbconvert = "*"
 ruff = "*"
+openpyxl = "^3.1.5"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -47,6 +48,10 @@ target-version = "py310"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "UP"]
+
+[tool.ruff.lint.per-file-ignores]
+# A data dictionary: one long description per column reads better unwrapped.
+"scripts/describe_results_db.py" = ["E501"]
 
 [build-system]
 requires = ["poetry-core>=1.0.0"]

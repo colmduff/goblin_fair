@@ -7,7 +7,9 @@ import goblin_fair as gf
 def test_public_names():
     assert set(gf.__all__) == {
         "temperature_contribution",
+        "neutral_pathway",
         "ContributionResult",
+        "NeutralPathway",
         "list_backgrounds",
         "__version__",
     }
@@ -35,6 +37,7 @@ def test_list_backgrounds():
         ({"end_year": 2100.0}, "end_year"),
         ({"members": 0}, "members"),
         ({"units": "kt CO2e"}, "gas-specific"),
+        ({"method": "subtract"}, "leave_one_out"),
     ],
 )
 def test_invalid_arguments_fail_before_running_fair(monkeypatch, kwargs, match):

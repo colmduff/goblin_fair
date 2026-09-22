@@ -1,4 +1,10 @@
-"""Validate user emissions and convert them to the species and units FaIR expects."""
+"""Validate user emissions and convert them to the species and units FaIR expects.
+
+A column is a gas, optionally with a label after a colon: "CH4" or
+"CH4:biogenic". Labels are free text. FaIR treats every label of a gas
+identically (they are the same species); a label only lets one stream be
+reported, or solved for, on its own.
+"""
 
 from __future__ import annotations
 
@@ -38,6 +44,17 @@ _EQUIVALENT_MSG = (
 )
 
 
+def specie_of(column: str) -> str:
+    """FaIR species of a prepared column: "CH4:biogenic" -> "CH4"."""
+    return str(column).split(":", 1)[0]
+
+
+def label_of(column: str) -> str | None:
+    """Stream label of a prepared column, or None if it has no label."""
+    parts = str(column).split(":", 1)
+    return parts[1] if len(parts) == 2 else None
+
+
 def prepare_emissions(
     emissions: pd.DataFrame,
     units: str | Mapping[str, str] = "kt",
@@ -49,6 +66,11 @@ def prepare_emissions(
     CO2 on its own is treated as fossil (CO2_FFI). Values are the mass of the
     gas itself per year; negative values (removals) are allowed.
 
+    A column may carry a stream label after a colon ("CH4:biogenic"). All
+    labels of one gas are the same species to FaIR; keeping them apart is
+    bookkeeping, so that one stream can be reported or solved for on its own.
+    A gas is either labelled everywhere or nowhere.
+
     `units` is one of "t", "kt", "Mt", "Gt", or a dict of those per column.
     Years must be whole, strictly increasing and within 1750..end_year-1.
     Missing years inside the range count as zero additional emissions.
@@ -58,51 +80,86 @@ def prepare_emissions(
     if emissions.shape[1] == 0:
         raise ValueError("emissions must have at least one gas column")
 
-    labels = [str(c) for c in emissions.columns]
-    names = [label.strip().upper() for label in labels]
-    for label in labels:
-        if _EQUIVALENT.search(label):
-            raise ValueError(f"column {label!r}: {_EQUIVALENT_MSG}")
+    given = [str(c) for c in emissions.columns]
+    for column in given:
+        if _EQUIVALENT.search(column):
+            raise ValueError(f"column {column!r}: {_EQUIVALENT_MSG}")
+    names = [_canonical_name(column) for column in given]
     dupes = sorted({n for n in names if names.count(n) > 1})
     if dupes:
         raise ValueError(f"duplicate columns after ignoring case: {dupes}")
+    gases = [specie_of(name) for name in names]
     unknown = [
-        lab for lab, n in zip(labels, names, strict=True) if n not in _COLUMN_TO_SPECIE
+        col
+        for col, gas in zip(given, gases, strict=True)
+        if gas not in _COLUMN_TO_SPECIE
     ]
     if unknown:
         raise ValueError(
             f"unsupported columns {unknown}; use CO2 (or CO2_FFI / CO2_AFOLU), CH4, N2O"
         )
-    if "CO2" in names and {"CO2_FFI", "CO2_AFOLU"} & set(names):
+    if "CO2" in gases and {"CO2_FFI", "CO2_AFOLU"} & set(gases):
         raise ValueError("give either CO2 or CO2_FFI/CO2_AFOLU, not both")
+    for gas in set(gases):
+        labelled = {
+            label_of(n) is not None
+            for n, g in zip(names, gases, strict=True)
+            if g == gas
+        }
+        if len(labelled) > 1:
+            raise ValueError(
+                f"{gas} is given both with and without a stream label; label every "
+                f"{gas} column or none of them"
+            )
 
     unit_for = _resolve_units(units, names)
     years = _validate_years(emissions.index, end_year)
 
     out = pd.DataFrame(index=pd.Index(years, name="year"))
-    for position, (label, name) in enumerate(zip(labels, names, strict=True)):
-        column = emissions.iloc[:, position]
-        if not pd.api.types.is_numeric_dtype(column) or pd.api.types.is_bool_dtype(
-            column
+    for position, (column, name) in enumerate(zip(given, names, strict=True)):
+        series = emissions.iloc[:, position]
+        if not pd.api.types.is_numeric_dtype(series) or pd.api.types.is_bool_dtype(
+            series
         ):
-            raise ValueError(f"column {label!r} must be numeric")
-        values = column.to_numpy(dtype=float)
+            raise ValueError(f"column {column!r} must be numeric")
+        values = series.to_numpy(dtype=float)
         if np.isnan(values).any():
             first_bad = int(years[np.isnan(values)][0])
             raise ValueError(
-                f"column {label!r} has a missing value in year {first_bad}"
+                f"column {column!r} has a missing value in year {first_bad}"
             )
-        specie = _COLUMN_TO_SPECIE[name]
+        specie = _COLUMN_TO_SPECIE[specie_of(name)]
+        label = label_of(name)
         target_prefix = FAIR_UNITS[specie].split()[0]
-        out[specie] = values * _TONNES[unit_for[name]] / _TONNES[target_prefix]
-    return out[[s for s in _SPECIE_ORDER if s in out.columns]]
+        out[specie if label is None else f"{specie}:{label}"] = (
+            values * _TONNES[unit_for[name]] / _TONNES[target_prefix]
+        )
+    order = {specie: position for position, specie in enumerate(_SPECIE_ORDER)}
+    return out[
+        sorted(out.columns, key=lambda c: (order[specie_of(c)], label_of(c) or ""))
+    ]
+
+
+def _canonical_name(column: str) -> str:
+    """ " ch4 : Biogenic " -> "CH4:biogenic"; gas upper case, label lower case."""
+    gas, _, label = str(column).partition(":")
+    gas = gas.strip().upper()
+    if not _:
+        return gas
+    label = label.strip().lower()
+    if not label:
+        raise ValueError(
+            f"column {column!r} has an empty stream label; write CH4:biogenic, "
+            "or drop the colon"
+        )
+    return f"{gas}:{label}"
 
 
 def _resolve_units(units: str | Mapping[str, str], names: list[str]) -> dict[str, str]:
     if isinstance(units, str):
         mapping = {name: units for name in names}
     else:
-        mapping = {str(k).strip().upper(): v for k, v in units.items()}
+        mapping = {_canonical_name(k): v for k, v in units.items()}
         missing = [name for name in names if name not in mapping]
         if missing:
             raise ValueError(f"units not given for columns {missing}")

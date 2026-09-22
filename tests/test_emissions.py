@@ -2,7 +2,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from goblin_fair.emissions import prepare_emissions
+from goblin_fair.emissions import prepare_emissions, specie_of
 
 
 def frame(**cols):
@@ -115,3 +115,53 @@ def test_gap_in_years_warns():
     df = pd.DataFrame({"CH4": [1.0, 1.0]}, index=[2020, 2025])
     with pytest.warns(UserWarning, match="zero"):
         prepare_emissions(df)
+
+
+# --- labelled streams: "CH4:biogenic" is still CH4 to FaIR ------------------
+
+
+def test_labelled_columns_are_kept_apart_but_map_to_one_specie():
+    out = prepare_emissions(
+        frame(**{"CH4:biogenic": [1000.0, 1000.0], "CH4:fossil": [2000.0, 0.0]})
+    )
+    assert list(out.columns) == ["CH4:biogenic", "CH4:fossil"]
+    np.testing.assert_allclose(out["CH4:biogenic"], [1.0, 1.0])  # Mt CH4
+    np.testing.assert_allclose(out["CH4:fossil"], [2.0, 0.0])
+    assert specie_of("CH4:biogenic") == "CH4"
+    assert specie_of("CH4") == "CH4"
+
+
+def test_labels_are_case_insensitive_and_trimmed():
+    out = prepare_emissions(
+        frame(**{" ch4 : Biogenic ": [1000.0, 0.0]}),
+        units={"CH4:biogenic": "kt"},
+    )
+    assert list(out.columns) == ["CH4:biogenic"]
+    np.testing.assert_allclose(out["CH4:biogenic"], [1.0, 0.0])
+
+
+def test_labelled_streams_sort_by_specie_then_label():
+    out = prepare_emissions(
+        frame(
+            **{
+                "CH4:fossil": [1.0, 1.0],
+                "CO2:energy": [1.0, 1.0],
+                "CH4:biogenic": [1.0, 1.0],
+            }
+        )
+    )
+    assert list(out.columns) == ["CO2 FFI:energy", "CH4:biogenic", "CH4:fossil"]
+
+
+@pytest.mark.parametrize(
+    "cols,match",
+    [
+        ({"CH4": [1.0, 1.0], "CH4:biogenic": [1.0, 1.0]}, "label"),
+        ({"CH4:": [1.0, 1.0]}, "label"),
+        ({"CH4:biogenic": [1.0, 1.0], "ch4:BIOGENIC": [1.0, 1.0]}, "duplicate"),
+        ({"SF6:fossil": [1.0, 1.0]}, "unsupported"),
+    ],
+)
+def test_invalid_labels_raise(cols, match):
+    with pytest.raises(ValueError, match=match):
+        prepare_emissions(frame(**cols))

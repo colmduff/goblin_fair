@@ -1,4 +1,4 @@
-.PHONY: install test test-all lint format data walkthrough lab clean
+.PHONY: install test test-all lint format data eu-db results-doc walkthrough lab clean
 
 install:
 	poetry install --with test,dev
@@ -21,6 +21,14 @@ format:
 # Rebuild the bundled data from upstream sources (needs network).
 data:
 	poetry run python scripts/build_data.py
+
+# Build EU-data/eu27_net_zero.sqlite from the ESABCC workbook (local, git-ignored).
+eu-db:
+	poetry run python scripts/build_eu_db.py
+
+# Write EU-data/RESULTS_DB.md, the data dictionary of EU-data/results.db.
+results-doc:
+	poetry run python scripts/describe_results_db.py
 
 # Execute the walkthrough notebooks in place (walkthrough/ is git-ignored).
 walkthrough:

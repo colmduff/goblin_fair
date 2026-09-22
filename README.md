@@ -73,17 +73,25 @@ Useful options:
 | Argument | Default | Meaning |
 |---|---|---|
 | `units` | `"kt"` | `"t"`, `"kt"`, `"Mt"`, `"Gt"`, or a dict per column |
-| `background` | `"ssp245"` | global scenario the emissions are added to; see `gf.list_backgrounds()` |
+| `background` | `"ssp245"` | global scenario the emissions belong to; see `gf.list_backgrounds()` |
 | `end_year` | `2100` | last year simulated (1902-2500) |
 | `members` | all 841 | an int N runs only the first N members, which is quicker for exploring |
+| `method` | `"leave_one_out"` | `"add"` for extra emissions that are not already in the background |
+
+`gf.neutral_pathway()` answers the reverse question; see below.
 
 ## How it works
 
-1. **Marginal contribution.** FaIR runs a global background scenario (SSP2-4.5 by
-   default) twice in one go: once as it is, and once with your emissions added.
-   Your contribution is the difference. This is the standard way to attribute
-   warming to a country or sector, because it keeps the non-linear parts of the
-   climate system, such as CO2 uptake saturating and methane lifetime changing.
+1. **Leave-one-out contribution.** FaIR runs a global background scenario
+   (SSP2-4.5 by default) twice in one go: once as it is (the world *with* your
+   emissions, which are part of its world totals) and once with your emissions
+   taken out (the world *without* them). Your contribution is the difference:
+   the warming that would not have happened without you. Both runs keep the
+   non-linear parts of the climate system, such as CO2 uptake saturating and
+   methane lifetime changing. For extra emissions that are not already in the
+   background, `method="add"` compares the SSP plus your emissions with the SSP.
+   Because of the non-linearity, leave-one-out contributions of several emitters
+   do not add up exactly to their combined contribution.
 2. **Calibrated ensemble.** Each of the 841 parameter sets is a plausible version
    of the climate system, constrained to match observed warming and the IPCC AR6
    assessed ranges. The difference is taken member by member, and `summary()`
@@ -96,6 +104,55 @@ Useful options:
    year *Y* is the value at the start of that year.
 
 The walkthrough notebooks go through each step with plots.
+
+## Working backwards: what would neutrality take?
+
+The same model can answer the reverse question: what would this entity have to emit to
+stop adding warming?
+
+```python
+answer = gf.neutral_pathway(
+    emissions,          # the entity's emissions, history included
+    solve="CH4",        # the column to solve for
+    from_year=2025,     # hold warming at its 2025 level, and start cutting then
+    by_year=2050,       # be back at that level by 2050 and stay there
+)
+
+answer.decline["p50"]        # e.g. 1.4 -> cut 1.4 % a year
+answer.cut_by(2050)          # e.g. 29 -> 29 % below 2025 by 2050
+answer.pathway               # the emissions that implies, with its range
+answer.allowance             # that pathway minus the one you gave
+answer.verification          # what the final FaIR run actually did
+```
+
+The search runs FaIR at different cut rates and narrows in on the smallest one that
+works, so every number comes from a real run. Each ensemble member gets its own required
+rate, which is where the p5-p95 range comes from, and `verification["share_neutral"]`
+says for what share of members the reported pathway really is neutral.
+
+Two choices define the question, and both are yours:
+
+- `from_year`: the warming level that must not be exceeded, and the first year of action.
+- `by_year`: when that level must be met again. Warming already in the pipeline keeps
+  rising for a few years whatever the entity does, so the years in between are a
+  transition and are not judged.
+
+Going the other way, a `ContributionResult` says when a pathway you already have becomes
+neutral:
+
+```python
+res = gf.temperature_contribution(emissions)
+res.warming_rate(window=10)                      # K per year, per member
+res.neutrality(from_year=2025, rule="peak")      # the year it stops rising
+```
+
+### Splitting a gas into streams
+
+If an inventory separates a gas, a column can carry a label: `CH4:biogenic`,
+`CH4:fossil`. FaIR has one methane, so labels are added together before the run; a label
+only lets one stream be reported, or solved for, on its own. Splitting is accounting, not
+physics, and the streams' contributions do not add up exactly to the whole, because
+methane's lifetime depends on how much methane is in the air.
 
 ## Data sources
 
@@ -125,10 +182,10 @@ the build is deterministic. The test suite checks the checksums.
   This matters little for a marginal contribution.
 - **A single `CO2` column is treated as fossil CO2.** Use `CO2_FFI` and
   `CO2_AFOLU` to split out land-use CO2.
-- **Only CO2, CH4 and N2O** are accepted as inputs in v0.1. F-gases, aerosols and
+- **Only CO2, CH4 and N2O** are accepted as inputs. F-gases, aerosols and
   ozone precursors are not.
 - **Internal variability.** The calibration includes stochastic internal
-  variability. It is identical in the background and perturbed runs, so it
+  variability. It is identical in the "with" and "without" runs, so it
   cancels exactly in the contribution but shows up in `background_warming()`.
 
 ## Development

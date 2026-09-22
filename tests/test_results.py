@@ -16,7 +16,11 @@ def result():
     background = rng.normal(size=(years.size, members.size))
     contribution = np.outer(np.linspace(0, 1, years.size), [1.0, 2.0, 3.0, 4.0, 5.0])
     return ContributionResult(
-        years, members, background, background + contribution, {"background": "ssp245"}
+        years,
+        members,
+        with_temperature=background + contribution,
+        without_temperature=background,
+        metadata={"background": "ssp245"},
     )
 
 
@@ -50,7 +54,7 @@ def test_background_warming_relative_to_1850_1900():
     years = np.arange(1750, 2101)
     temps = np.where(years >= 1850, 1.0, 0.0)[:, None].repeat(3, axis=1)
     temps[years > 1901] = 2.0
-    r = ContributionResult(years, np.arange(3), temps, temps, {})
+    r = ContributionResult(years, np.arange(3), temps, temps)
     bw = r.background_warming()
     # baseline = weighted mean of timebounds 1850..1901, all 1.0 here
     np.testing.assert_allclose(bw.loc[2000, "p50"], 1.0)
@@ -61,7 +65,7 @@ def test_background_warming_uses_half_weights_at_baseline_ends():
     years = np.arange(1750, 2101)
     temps = np.zeros((years.size, 1))
     temps[years == 1850] = 52.0  # half weight of 52 over total weight 51 -> 26/51
-    r = ContributionResult(years, np.arange(1), temps, temps, {})
+    r = ContributionResult(years, np.arange(1), temps, temps)
     np.testing.assert_allclose(r.background_warming().loc[2000, "p50"], -26.0 / 51.0)
 
 
@@ -83,7 +87,7 @@ def test_plot_starts_shortly_before_first_emission_year():
     years = np.arange(1750, 2101)
     temps = np.zeros((years.size, 2))
     md = {"first_emission_year": 2025}
-    ax = ContributionResult(years, np.arange(2), temps, temps, md).plot()
+    ax = ContributionResult(years, np.arange(2), temps, temps, metadata=md).plot()
     assert ax.get_xlim()[0] == 2015
     assert ax.lines[0].get_xdata()[0] == 2015
 
@@ -91,3 +95,30 @@ def test_plot_starts_shortly_before_first_emission_year():
 def test_plot_start_year_can_be_overridden(result):
     ax = result.plot(start_year=1900)
     assert ax.get_xlim()[0] == 1900
+
+
+def test_default_method_is_leave_one_out(result):
+    assert result.method == "leave_one_out"
+
+
+@pytest.mark.parametrize(
+    "method,reference", [("leave_one_out", "with"), ("add", "without")]
+)
+def test_background_warming_uses_the_unmodified_ssp_run(method, reference):
+    # leave_one_out: "with" is the real world (SSP); add: "without" is the SSP.
+    years = np.arange(1750, 2101)
+    ssp = np.where(years > 1901, 1.0, 0.0)[:, None]
+    other = np.where(years > 1901, 5.0, 0.0)[:, None]
+    runs = (
+        {"with": ssp, "without": other}
+        if reference == "with"
+        else {"with": other, "without": ssp}
+    )
+    r = ContributionResult(
+        years, np.arange(1), runs["with"], runs["without"], method=method
+    )
+    np.testing.assert_allclose(r.background_warming().loc[2000, "p50"], 1.0)
+
+
+def test_repr_names_the_method(result):
+    assert "leave_one_out" in repr(result)

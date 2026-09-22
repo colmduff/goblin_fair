@@ -1,9 +1,13 @@
 """The only module in goblin_fair that talks to fair.
 
 One FaIR instance runs two scenarios that share everything except the user's
-emissions: "background" (an SSP) and "perturbed" (the same SSP plus the user's
-emissions). The recipe follows FaIR's calibrated, constrained ensemble example
-for fair 2.2.4.
+emissions, "with" and "without" them:
+
+- leave_one_out: "with" is the SSP (the real world, which already contains the
+  emitter), "without" is the SSP minus the user's emissions.
+- add: "with" is the SSP plus the user's emissions, "without" is the SSP.
+
+The recipe follows FaIR's calibrated, constrained ensemble example for fair 2.2.4.
 """
 
 from __future__ import annotations
@@ -19,16 +23,20 @@ from fair.interface import fill, initialise
 from fair.io import read_properties
 
 from goblin_fair import _data
+from goblin_fair.emissions import specie_of
 
-SCENARIOS = ("background", "perturbed")
+SCENARIOS = ("with", "without")
+METHODS = ("leave_one_out", "add")
+# The adjusted world must not have negative global emissions of these.
+_NON_NEGATIVE = ("CH4", "N2O")
 
 
 @dataclass(frozen=True)
 class RunOutput:
     years: np.ndarray
     members: np.ndarray
-    background: np.ndarray  # surface temperature, K, shape (n_years, n_members)
-    perturbed: np.ndarray
+    with_: np.ndarray  # surface temperature, K, shape (n_years, n_members)
+    without: np.ndarray
 
 
 def fair_version() -> str:
@@ -40,8 +48,9 @@ def run_pair(
     background: str,
     end_year: int,
     members: None | int | Sequence[int] = None,
+    method: str = "leave_one_out",
 ) -> RunOutput:
-    """Run background and background+emissions for the chosen ensemble members.
+    """Run the SSP with and without `emissions` for the chosen ensemble members.
 
     `emissions` must already be in FaIR species and units, as returned by
     goblin_fair.emissions.prepare_emissions.
@@ -63,13 +72,27 @@ def run_pair(
     per_scenario = [bg.assign(scenario=name) for name in SCENARIOS]
     f.fill_from_pandas("emissions", pd.concat(per_scenario, ignore_index=True))
 
-    # 2. Add the user's emissions to the perturbed scenario.
-    #    Emissions in year Y sit on FaIR timepoint Y + 0.5.
+    # 2. leave_one_out takes the user's emissions out of "without";
+    #    add puts them into "with". Year Y sits on FaIR timepoint Y + 0.5.
+    scenario, sign = ("without", -1.0) if method == "leave_one_out" else ("with", 1.0)
     timepoints = emissions.index.to_numpy(dtype=float) + 0.5
-    for specie in emissions.columns:
-        selection = dict(specie=specie, scenario="perturbed", timepoints=timepoints)
-        current = f.emissions.loc[selection].to_numpy()
-        fill(f.emissions, current + emissions[specie].to_numpy()[:, None], **selection)
+    #    Stream labels ("CH4:biogenic") are bookkeeping: FaIR has one CH4, so
+    #    every label of a gas is summed before it goes in.
+    by_specie = emissions.T.groupby(specie_of, sort=False).sum().T
+    for specie in by_specie.columns:
+        selection = dict(specie=specie, scenario=scenario, timepoints=timepoints)
+        adjusted = (
+            f.emissions.loc[selection].to_numpy()
+            + sign * by_specie[specie].to_numpy()[:, None]
+        )
+        if specie in _NON_NEGATIVE and (adjusted < 0).any():
+            first = int(by_specie.index[(adjusted < 0).any(axis=1)][0])
+            raise ValueError(
+                f"{method} leaves negative global {specie} "
+                f"emissions in {background} in {first}; check the units and "
+                "that the emitter is part of the world total"
+            )
+        fill(f.emissions, adjusted, **selection)
 
     # 3. Solar and volcanic forcing, scaled per member. fair does not apply
     #    forcing_scale to species supplied as forcing, so do it here.
@@ -96,6 +119,6 @@ def run_pair(
     return RunOutput(
         years=np.asarray(f.timebounds).astype(int),
         members=np.asarray(params.index),
-        background=surface.sel(scenario="background").to_numpy(),
-        perturbed=surface.sel(scenario="perturbed").to_numpy(),
+        with_=surface.sel(scenario="with").to_numpy(),
+        without=surface.sel(scenario="without").to_numpy(),
     )
