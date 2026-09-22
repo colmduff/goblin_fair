@@ -1,0 +1,31 @@
+# --- Python ---
+__pycache__/
+*.pyc
+.venv/
+*.egg-info/
+dist/
+build/
+
+# --- Jupyter ---
+.ipynb_checkpoints/
+
+# --- Tooling caches ---
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# --- Editor / IDE ---
+.idea/
+.vscode/
+
+# --- Walkthrough notebooks: local learning material, not versioned ---
+walkthrough/
+
+# --- Claude Code project notes ---
+CLAUDE.md
+.claude/
+
+#---other 
+EU-data/

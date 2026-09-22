@@ -1,0 +1,58 @@
+[tool.poetry]
+name = "goblin_fair"
+version = "0.1.0"
+description = "Simple, documented temperature-contribution calculations with the FaIR climate model"
+authors = ["Colm Duffy <colm.p.duffy@gmail.com>"]
+license = "GPL-3.0-only"
+readme = "README.md"
+packages = [{ include = "goblin_fair", from = "src" }]
+# Everything the model reads ships inside the package (see data/DATA_SOURCES.md).
+include = [{ path = "src/goblin_fair/data/*", format = ["sdist", "wheel"] }]
+
+[tool.poetry.dependencies]
+python = ">=3.10,<4.0"
+# Pinned exactly: the bundled calibration (v1.4.1) is tied to a FaIR version.
+fair = "2.2.4"
+pandas = ">=2.0"
+numpy = ">=1.24"
+matplotlib = ">=3.7"
+
+# --- tests: poetry install --with test --------------------------------------
+[tool.poetry.group.test]
+optional = true
+[tool.poetry.group.test.dependencies]
+pytest = "^8.0"
+pytest-cov = "*"
+
+# --- dev / walkthrough notebooks: poetry install --with dev ------------------
+[tool.poetry.group.dev]
+optional = true
+[tool.poetry.group.dev.dependencies]
+jupyterlab = "*"
+ipykernel = "*"
+ipywidgets = "*"  # silences tqdm's notebook warning when fair is imported
+nbconvert = "*"
+ruff = "*"
+openpyxl = "^3.1.5"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+  "slow: runs FaIR (seconds each); excluded by `make test`",
+  "network: downloads upstream data; excluded by `make test`",
+]
+
+[tool.ruff]
+line-length = 88
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]
+
+[tool.ruff.lint.per-file-ignores]
+# A data dictionary: one long description per column reads better unwrapped.
+"scripts/describe_results_db.py" = ["E501"]
+
+[build-system]
+requires = ["poetry-core>=1.0.0"]
+build-backend = "poetry.core.masonry.api"
